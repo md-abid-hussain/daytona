@@ -30,7 +30,6 @@ import (
 	"github.com/daytonaio/daytona/pkg/api/middlewares"
 	"github.com/daytonaio/daytona/pkg/frpc"
 	"github.com/daytonaio/daytona/pkg/telemetry"
-	"github.com/gin-contrib/cors"
 
 	"github.com/daytonaio/daytona/pkg/api/controllers/apikey"
 	"github.com/daytonaio/daytona/pkg/api/controllers/binary"
@@ -66,6 +65,7 @@ type ApiServerConfig struct {
 	TelemetryService telemetry.TelemetryService
 	Frps             *daytonaServer.FRPSConfig
 	ServerId         string
+	ConfigPath       string
 }
 
 func NewApiServer(config ApiServerConfig) *ApiServer {
@@ -75,6 +75,7 @@ func NewApiServer(config ApiServerConfig) *ApiServer {
 		version:          config.Version,
 		frps:             config.Frps,
 		serverId:         config.ServerId,
+		configPath:       config.ConfigPath,
 	}
 }
 
@@ -86,6 +87,7 @@ type ApiServer struct {
 	version          string
 	frps             *daytonaServer.FRPSConfig
 	serverId         string
+	configPath       string
 }
 
 func (a *ApiServer) Start() error {
@@ -103,9 +105,20 @@ func (a *ApiServer) Start() error {
 
 	if mode, ok := os.LookupEnv("DAYTONA_SERVER_MODE"); ok && mode == "development" {
 		a.router = gin.Default()
-		a.router.Use(cors.New(cors.Config{
-			AllowAllOrigins: true,
-		}))
+		// a.router.Use(cors.New(cors.Config{
+		// 	AllowAllOrigins: true,
+		// }))
+		a.router.Use(func(c *gin.Context) {
+			c.Writer.Header().Add("Access-Control-Allow-Origin", "*")
+			c.Writer.Header().Add("Access-Control-Max-Age", "10000")
+			c.Writer.Header().Add("Access-Control-Allow-Methods", "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS")
+			c.Writer.Header().Add("Access-Control-Allow-Headers", "Authorization,Content-Type,Accept")
+			if c.Request.Method == "OPTIONS" {
+				c.AbortWithStatus(204)
+				return
+			}
+			c.Next()
+		})
 	} else {
 		gin.SetMode(gin.ReleaseMode)
 		a.router = gin.New()
@@ -118,6 +131,10 @@ func (a *ApiServer) Start() error {
 
 	public := a.router.Group("/")
 	public.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerfiles.Handler))
+
+	public.GET("/configuration.json", func(ctx *gin.Context) {
+		ctx.File(a.configPath)
+	})
 
 	healthController := public.Group(constants.HEALTH_CHECK_ROUTE)
 	{
